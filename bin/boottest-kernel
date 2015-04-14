@@ -1,0 +1,89 @@
+#!/bin/bash
+
+temp=$(mktemp -d)
+trap 'rm -rf "$temp"' EXIT
+mkdir "$temp/seen"
+
+add_file()
+{
+	local src=$1 dst=$2
+
+	if test -e "$temp/seen/$dst"; then
+		continue
+	fi
+	dirs=($(echo "$dst" |  sed -rn ':a; s:/[^/]+$::p; ta' | tac))
+	for dir in "${dirs[@]}"; do
+		if test -d "$temp/seen/$dir"; then
+			continue
+		fi
+		echo "dir $dir 0755 0 0" >>"$temp/list"
+		mkdir "$temp/seen/$dir"
+	done
+	echo "file $dst $src 0755 0 0" >>"$temp/list"
+	touch "$temp/seen/$dst"
+}
+add_files()
+{
+	while test $# -gt 0; do
+		local file=$1
+		shift
+		add_file "$file" "$file"
+		set -- "$@" $(ldd "$file" 2>/dev/null | \
+			sed -ne 's:\t\(.* => \)\?\(/.*\) (0x[0-9a-f]*):\2:p' | \
+			sort -u)
+	done
+}
+
+set -e
+
+if test -n "$1"; then
+	cd "$1"
+fi
+
+add_files /bin/bash
+
+MARKER="It WoRkS"
+cat >"$temp/init" <<-EOF
+	#!/bin/bash
+
+	echo
+	echo $MARKER
+	echo
+	poweroff
+EOF
+add_file "$temp/init" "/init"
+cat >"$temp/poweroff.c" <<-EOF
+	#include <unistd.h>
+	#include <sys/reboot.h>
+
+	int main(int argc, char **argv)
+	{
+		reboot(RB_POWER_OFF);
+		return 0;
+	}
+EOF
+gcc -Wall -o "$temp/poweroff" "$temp/poweroff.c"
+add_file "$temp/poweroff" "/bin/poweroff"
+usr/gen_init_cpio "$temp/list" >"$temp/cpio"
+(set +e; qemu-system-x86_64 -nographic -kernel arch/x86_64/boot/bzImage \
+	-initrd "$temp/cpio"  -append 'console=ttyS0'
+	err=$?; touch "$temp/done"; exit $err) &>"$temp/log" &
+timeout=30
+while test ! -e "$temp/done" -a "$timeout" -gt 0; do
+	sleep 1
+	let timeout--
+done
+if test "$timeout" -eq 0; then
+	cat "$temp/log"
+	kill %1
+	exit 1
+fi
+if ! wait %1; then
+	cat "$temp/log"
+	exit 1
+fi
+if ! grep -q "$MARKER" "$temp/log"; then
+	cat "$temp/log"
+	echo "Initrd marker missing"
+	exit 1
+fi
