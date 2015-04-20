@@ -65,9 +65,9 @@ EOF
 gcc -Wall -o "$temp/poweroff" "$temp/poweroff.c"
 add_file "$temp/poweroff" "/bin/poweroff"
 usr/gen_init_cpio "$temp/list" >"$temp/cpio"
-(set +e; qemu-system-x86_64 -nographic -kernel arch/x86_64/boot/bzImage \
-	-initrd "$temp/cpio"  -append 'console=ttyS0'
-	err=$?; touch "$temp/done"; exit $err) &>"$temp/log" &
+( (set +e -x; qemu-system-x86_64 -nographic -kernel arch/x86_64/boot/bzImage \
+	-initrd "$temp/cpio"  -append 'console=ttyS0' &>"$temp/log")
+	err=$?; touch "$temp/done"; exit $err) &
 timeout=30
 while test ! -e "$temp/done" -a "$timeout" -gt 0; do
 	sleep 1
