@@ -1,0 +1,4 @@
+This is a very basic boot test utilizing qemu. It currently only boots
+into an initramfs and runs a bash script. No modules are loaded and no
+kernel functionality beyond being able to execute a #! script and an ELF
+binary is tested.
