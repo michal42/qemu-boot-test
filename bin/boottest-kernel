@@ -65,22 +65,16 @@ EOF
 gcc -Wall -o "$temp/poweroff" "$temp/poweroff.c"
 add_file "$temp/poweroff" "/bin/poweroff"
 usr/gen_init_cpio "$temp/list" >"$temp/cpio"
-( (set +e -x; qemu-system-x86_64 -nographic -kernel arch/x86_64/boot/bzImage \
-	-initrd "$temp/cpio"  -append 'console=ttyS0' &>"$temp/log")
-	err=$?; touch "$temp/done"; exit $err) &
+qemu_cmd=(qemu-system-x86_64 -nographic -kernel arch/x86_64/boot/bzImage
+	-initrd "$temp/cpio" -append 'console=ttyS0')
+echo "$PS4${qemu_cmd[@]}"
 timeout=30
-while test ! -e "$temp/done" -a "$timeout" -gt 0; do
-	sleep 1
-	let timeout--
-done
-if test "$timeout" -eq 0; then
+err=0
+timeout --foreground --kill-after=10 "$timeout" "${qemu_cmd[@]}" \
+	&>"$temp/log" || err=$?
+if test $err -ne 0; then
 	cat "$temp/log"
-	kill %1
-	exit 1
-fi
-if ! wait %1; then
-	cat "$temp/log"
-	exit 1
+	exit $err
 fi
 if ! grep -q "$MARKER" "$temp/log"; then
 	cat "$temp/log"
