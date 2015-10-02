@@ -65,8 +65,31 @@ EOF
 gcc -Wall -o "$temp/poweroff" "$temp/poweroff.c"
 add_file "$temp/poweroff" "/bin/poweroff"
 usr/gen_init_cpio "$temp/list" >"$temp/cpio"
-qemu_cmd=(qemu-system-x86_64 -nographic -kernel arch/x86_64/boot/bzImage
-	-initrd "$temp/cpio" -append 'console=ttyS0')
+
+is_xen=false
+image=arch/x86_64/boot/bzImage
+if test -e "$image"; then
+	if scripts/extract-ikconfig "$image" | grep -q '^CONFIG_XEN_BZIMAGE=y'; then
+		is_xen=true
+	fi
+elif test -e "arch/x86_64/boot/vmlinuz"; then
+	image=$_
+	is_xen=true
+fi
+qemu_cmd=(qemu-system-x86_64 -nographic -m 1024)
+if $is_xen; then
+	echo "Found a Xen kernel"
+	if ! test -e /boot/xen.gz; then
+		echo "/boot/xen.gz missing" >&2
+		exit 1
+	fi
+	gzip -cd /boot/xen.gz >"$temp/xen"
+	qemu_cmd=("${qemu_cmd[@]}" -kernel "$temp/xen" -append 'console=com1'
+	          -initrd "$image console=ttyS0,$temp/cpio")
+else
+	qemu_cmd=("${qemu_cmd[@]}" -kernel "$image" -append 'console=ttyS0'
+	          -initrd "$temp/cpio")
+fi
 echo "$PS4${qemu_cmd[@]}"
 timeout=30
 err=0
